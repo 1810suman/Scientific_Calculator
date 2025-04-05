@@ -1,0 +1,448 @@
+package Work;
+
+import javax.swing.*;
+import javax.swing.border.Border;
+import java.awt.*;
+import java.awt.event.*;
+import java.util.Stack;
+import java.util.StringTokenizer;
+
+public class ScientificCalculator extends JFrame implements ActionListener {
+
+    private static final long serialVersionUID = 1L;
+    private JTextField display;
+    private JTextArea historyArea;
+    private String expression = "";
+    private boolean isDarkMode = false;
+    private JPanel buttonPanel;
+    private JButton[] buttonObjects;
+
+    private final String[] buttons = {
+        "(", ")", "C", "←",
+        "7", "8", "9", "/",
+        "4", "5", "6", "*",
+        "1", "2", "3", "-",
+        "0", ".", "=", "+",
+        "π", "exp", "ln", "^",
+        "sin", "cos", "tan", "√"
+    };
+
+    public ScientificCalculator() {
+        setTitle("Scientific Calculator");
+        setSize(420, 600);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+        setLayout(new BorderLayout());
+
+        // Display
+        display = new JTextField();
+        display.setFont(new Font("Consolas", Font.BOLD, 24));
+        display.setEditable(false);
+        display.setHorizontalAlignment(SwingConstants.RIGHT);
+        add(display, BorderLayout.NORTH);
+
+        // History log
+        historyArea = new JTextArea(4, 20);
+        historyArea.setEditable(false);
+        historyArea.setFont(new Font("Consolas", Font.PLAIN, 14));
+        JScrollPane scrollPane = new JScrollPane(historyArea);
+        add(scrollPane, BorderLayout.SOUTH);
+
+        // Initialize buttonPanel first
+        buttonPanel = new JPanel(new GridLayout(7, 4, 5, 5));
+        buttonPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        
+        // Store references to all buttons
+        buttonObjects = new JButton[buttons.length];
+        
+        // Then add buttons to it
+        for (int i = 0; i < buttons.length; i++) {
+            String label = buttons[i];
+            
+            // Create custom styled button
+            JButton btn = new MyButton(label);
+            btn.setFont(new Font("Arial", Font.BOLD, 18));
+            btn.addActionListener(this);
+            
+            // Store reference
+            buttonObjects[i] = btn;
+            buttonPanel.add(btn);
+        }
+
+        add(buttonPanel, BorderLayout.CENTER);
+
+        // Menu
+        JMenuBar menuBar = new JMenuBar();
+        JMenu viewMenu = new JMenu("View");
+        JMenuItem toggleTheme = new JMenuItem("Toggle Dark Mode");
+        toggleTheme.addActionListener(e -> toggleDarkMode());
+        viewMenu.add(toggleTheme);
+        menuBar.add(viewMenu);
+        setJMenuBar(menuBar);
+
+        updateTheme();
+    }
+    
+    // Custom button class that respects our colors
+    private class MyButton extends JButton {
+        public MyButton(String text) {
+            super(text);
+            // Make button completely opaque
+            setContentAreaFilled(true);
+            setOpaque(true);
+            setBorderPainted(true);
+        }
+        
+        @Override
+        protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            
+            // Fill the background
+            g2.setColor(getBackground());
+            g2.fillRect(0, 0, getWidth(), getHeight());
+            
+            // Draw the text
+            FontMetrics fm = g2.getFontMetrics();
+            int textWidth = fm.stringWidth(getText());
+            int textHeight = fm.getHeight();
+            
+            g2.setColor(getForeground());
+            g2.drawString(getText(), 
+                (getWidth() - textWidth) / 2, 
+                (getHeight() - textHeight) / 2 + fm.getAscent());
+            
+            g2.dispose();
+        }
+    }
+
+    public void actionPerformed(ActionEvent e) {
+        String cmd = e.getActionCommand();
+        try {
+            switch (cmd) {
+                case "=" -> {
+                    if (!expression.isEmpty()) {
+                        try {
+                            // Use our custom calculator instead of ScriptEngine
+                            double result = evaluateExpression(expression);
+                            String formattedResult = formatResult(result);
+                            historyArea.append(expression + " = " + formattedResult + "\n");
+                            expression = formattedResult;
+                            display.setText(formattedResult);
+                        } catch (Exception ex) {
+                            historyArea.append("Error: " + expression + " - " + ex.getMessage() + "\n");
+                            display.setText("Error");
+                            expression = "";
+                        }
+                    }
+                }
+                case "C" -> {
+                    expression = "";
+                    display.setText("");
+                }
+                case "←" -> {
+                    if (!expression.isEmpty()) {
+                        expression = expression.substring(0, expression.length() - 1);
+                        display.setText(expression);
+                    }
+                }
+                case "π" -> {
+                    expression += "π";
+                    display.setText(expression);
+                }
+                case "exp", "ln", "sin", "cos", "tan", "√" -> {
+                    expression += cmd + "(";
+                    display.setText(expression);
+                }
+                default -> {
+                    expression += cmd;
+                    display.setText(expression);
+                }
+            }
+        } catch (Exception ex) {
+            display.setText("Error");
+            historyArea.append("Error in input: " + expression + "\n");
+            expression = "";
+        }
+    }
+
+    private String formatResult(double result) {
+        // Handle integer results
+        if (Math.abs(result - Math.round(result)) < 1e-10) {
+            return String.valueOf(Math.round(result));
+        }
+        
+        // Format with appropriate decimal places
+        String formatted = String.format("%.8f", result);
+        // Remove trailing zeros
+        return formatted.replaceAll("0+$", "").replaceAll("\\.$", "");
+    }
+
+    private double evaluateExpression(String exp) {
+        // Replace constants
+        exp = exp.replace("π", String.valueOf(Math.PI));
+        
+        // Ensure balanced parentheses
+        exp = ensureBalancedParentheses(exp);
+        
+        // Basic expression evaluation using our custom parser
+        return parseExpression(exp);
+    }
+    
+    private double parseExpression(String exp) {
+        try {
+            // Handle scientific functions
+            exp = handleFunctions(exp);
+            
+            // Create tokens
+            StringTokenizer tokenizer = createTokenizer(exp);
+            
+            // Parse with operator precedence
+            return parseTokens(tokenizer);
+        } catch (Exception e) {
+            throw new RuntimeException("Invalid expression: " + e.getMessage());
+        }
+    }
+    
+    private String handleFunctions(String exp) {
+        // Handle scientific functions
+        exp = handleFunction(exp, "sin(", Math::sin);
+        exp = handleFunction(exp, "cos(", Math::cos);
+        exp = handleFunction(exp, "tan(", Math::tan);
+        exp = handleFunction(exp, "ln(", Math::log);
+        exp = handleFunction(exp, "exp(", Math::exp);
+        exp = handleFunction(exp, "√(", Math::sqrt);
+        
+        return exp;
+    }
+    
+    private String handleFunction(String exp, String funcName, java.util.function.DoubleUnaryOperator op) {
+        while (exp.contains(funcName)) {
+            int start = exp.indexOf(funcName);
+            int end = findClosingParen(exp, start + funcName.length() - 1);
+            
+            if (end == -1) {
+                throw new RuntimeException("Missing closing parenthesis for " + funcName);
+            }
+            
+            String argStr = exp.substring(start + funcName.length(), end);
+            double arg = parseExpression(argStr);
+            double result = op.applyAsDouble(arg);
+            
+            exp = exp.substring(0, start) + result + exp.substring(end + 1);
+        }
+        return exp;
+    }
+    
+    private int findClosingParen(String s, int openPos) {
+        int closePos = openPos;
+        int counter = 1;
+        while (counter > 0) {
+            closePos++;
+            if (closePos >= s.length()) {
+                return -1;
+            }
+            char c = s.charAt(closePos);
+            if (c == '(') {
+                counter++;
+            } else if (c == ')') {
+                counter--;
+            }
+        }
+        return closePos;
+    }
+    
+    private StringTokenizer createTokenizer(String exp) {
+        // Add spaces around operators for tokenization
+        exp = exp.replace("+", " + ")
+                .replace("-", " - ")
+                .replace("*", " * ")
+                .replace("/", " / ")
+                .replace("^", " ^ ")
+                .replace("(", " ( ")
+                .replace(")", " ) ");
+        
+        // Clean up multiple spaces
+        exp = exp.trim().replaceAll("\\s+", " ");
+        
+        return new StringTokenizer(exp, " ", true);
+    }
+    
+    private double parseTokens(StringTokenizer tokenizer) {
+        Stack<Double> values = new Stack<>();
+        Stack<String> operators = new Stack<>();
+        
+        while (tokenizer.hasMoreTokens()) {
+            String token = tokenizer.nextToken().trim();
+            
+            // Skip spaces
+            if (token.isEmpty() || token.equals(" ")) {
+                continue;
+            }
+            
+            // Number
+            if (isNumeric(token)) {
+                values.push(Double.parseDouble(token));
+                continue;
+            }
+            
+            // Open parenthesis
+            if (token.equals("(")) {
+                operators.push(token);
+                continue;
+            }
+            
+            // Close parenthesis
+            if (token.equals(")")) {
+                while (!operators.isEmpty() && !operators.peek().equals("(")) {
+                    values.push(applyOperator(operators.pop(), values.pop(), values.pop()));
+                }
+                operators.pop(); // Remove the "("
+                continue;
+            }
+            
+            // Operator
+            if (isOperator(token)) {
+                while (!operators.isEmpty() && precedence(token) <= precedence(operators.peek())) {
+                    values.push(applyOperator(operators.pop(), values.pop(), values.pop()));
+                }
+                operators.push(token);
+                continue;
+            }
+        }
+        
+        // Apply remaining operators
+        while (!operators.isEmpty()) {
+            values.push(applyOperator(operators.pop(), values.pop(), values.pop()));
+        }
+        
+        return values.pop();
+    }
+    
+    private boolean isNumeric(String str) {
+        try {
+            Double.parseDouble(str);
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+    
+    private boolean isOperator(String token) {
+        return token.equals("+") || token.equals("-") || 
+               token.equals("*") || token.equals("/") || 
+               token.equals("^");
+    }
+    
+    private int precedence(String op) {
+        if (op.equals("+") || op.equals("-")) return 1;
+        if (op.equals("*") || op.equals("/")) return 2;
+        if (op.equals("^")) return 3;
+        return 0;
+    }
+    
+    private double applyOperator(String op, double b, double a) {
+        switch (op) {
+            case "+": return a + b;
+            case "-": return a - b;
+            case "*": return a * b;
+            case "/": return a / b;
+            case "^": return Math.pow(a, b);
+            default: throw new RuntimeException("Unknown operator: " + op);
+        }
+    }
+    
+    private String ensureBalancedParentheses(String exp) {
+        int openCount = 0;
+        
+        for (char c : exp.toCharArray()) {
+            if (c == '(') openCount++;
+            if (c == ')') openCount--;
+        }
+        
+        // Add missing closing parentheses
+        StringBuilder sb = new StringBuilder(exp);
+        for (int i = 0; i < openCount; i++) {
+            sb.append(')');
+        }
+        
+        return sb.toString();
+    }
+
+    private void toggleDarkMode() {
+        isDarkMode = !isDarkMode;
+        updateTheme();
+    }
+
+    private void updateTheme() {
+        // Define colors based on mode
+        Color bg = isDarkMode ? new Color(50, 50, 50) : Color.WHITE;
+        Color fg = isDarkMode ? Color.WHITE : Color.BLACK;
+        
+        // Define button colors
+        Color btnBg = isDarkMode ? new Color(100, 60, 30) : new Color(240, 240, 240); // Brown for dark mode
+        Color btnFg = isDarkMode ? Color.WHITE : Color.BLACK; // White text for dark mode
+        Color opBtnBg = isDarkMode ? new Color(120, 70, 40) : new Color(200, 200, 240); // Darker brown for operators
+        
+        // Update display
+        display.setBackground(bg);
+        display.setForeground(fg);
+        
+        // Update history area
+        historyArea.setBackground(bg);
+        historyArea.setForeground(fg);
+        
+        // Update button panel
+        buttonPanel.setBackground(bg);
+        
+        // Define button border
+        Border buttonBorder = BorderFactory.createLineBorder(isDarkMode ? new Color(40, 40, 40) : Color.GRAY, 1);
+        
+        // Update all buttons with correct colors
+        for (JButton btn : buttonObjects) {
+            String text = btn.getText();
+            
+            // Set colors based on button type
+            if (text.equals("+") || text.equals("-") || text.equals("*") || 
+                text.equals("/") || text.equals("=") || text.equals("^")) {
+                btn.setBackground(opBtnBg);
+            } else {
+                btn.setBackground(btnBg);
+            }
+            
+            btn.setForeground(btnFg);
+            btn.setBorder(buttonBorder);
+            
+            // Force repaint of this specific button
+            btn.repaint();
+        }
+        
+        // Update scrollpane
+        Component[] components = getContentPane().getComponents();
+        for (Component c : components) {
+            if (c instanceof JScrollPane) {
+                JScrollPane scrollPane = (JScrollPane) c;
+                scrollPane.getViewport().setBackground(bg);
+                scrollPane.setBorder(BorderFactory.createLineBorder(isDarkMode ? new Color(70, 70, 70) : Color.LIGHT_GRAY));
+            }
+        }
+        
+        // Update main container
+        getContentPane().setBackground(bg);
+        
+        // Force repaint
+        repaint();
+        revalidate();
+    }
+    
+    public static void main(String[] args) {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            // Fallback to default look and feel
+        }
+        
+        SwingUtilities.invokeLater(() -> {
+            new ScientificCalculator().setVisible(true);
+        });
+    }
+}
